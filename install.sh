@@ -80,7 +80,6 @@ noomic_install() {
   trap 'exit 143' TERM
   [[ ! -e "$installation/current" || -L "$installation/current" ]] || fail 'current должен быть ссылкой на выпуск, а не каталогом'
   install -d -m 700 "$installation/deployment"
-  exec 9>"$installation/deployment/bootstrap.lock"
   # flock itself is installed below on minimal systems; acquiring the lock
   # immediately after installing it also serializes all application changes.
   note 'Проверяем системные зависимости'
@@ -95,6 +94,7 @@ noomic_install() {
     apt-get -o DPkg::Lock::Timeout=180 update
     DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=180 install -y --no-install-recommends "${missing[@]}"
   fi
+  exec 9>"$installation/deployment/bootstrap.lock"
   flock -n 9 || fail 'Другой установщик уже работает с этим каталогом'
 
   github_cli_ready() {
@@ -114,8 +114,9 @@ noomic_install() {
       printf '%s\n' 'deb [arch=amd64 signed-by=/etc/apt/keyrings/noomic-github-cli.gpg] https://cli.github.com/packages stable main' \
         > /etc/apt/sources.list.d/noomic-github-cli.list
     fi
-    apt-get -o DPkg::Lock::Timeout=180 update
-    DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=180 install -y --no-install-recommends gh
+    # Package hooks can start long-lived services. Only this shell may own the lock.
+    apt-get -o DPkg::Lock::Timeout=180 update 9>&-
+    DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=180 install -y --no-install-recommends gh 9>&-
   fi
   github_cli_ready || fail 'Не удалось установить GitHub CLI ≥ 2.46'
 
@@ -148,14 +149,14 @@ Architectures: amd64
 Signed-By: /etc/apt/keyrings/noomic-docker.asc
 SOURCES
     fi
-    apt-get -o DPkg::Lock::Timeout=180 update
+    apt-get -o DPkg::Lock::Timeout=180 update 9>&-
     DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=180 install -y --no-install-recommends \
-      docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+      docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin 9>&-
   fi
   docker_ready || fail 'Не удалось установить Docker с Compose ≥ 2.24'
   if ! docker info >/dev/null 2>&1; then
-    if [[ -d /run/systemd/system ]]; then systemctl enable --now docker
-    elif command -v service >/dev/null; then service docker start
+    if [[ -d /run/systemd/system ]]; then systemctl enable --now docker 9>&-
+    elif command -v service >/dev/null; then service docker start 9>&-
     else fail 'Docker установлен, но менеджер служб не найден'; fi
     local attempt
     for ((attempt=0; attempt<30; attempt++)); do docker info >/dev/null 2>&1 && break; sleep 1; done
