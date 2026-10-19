@@ -204,7 +204,8 @@ if not re.fullmatch('[a-f0-9]{64}',str(manifest.get('sha256',''))) or hashlib.sh
 required={'compose.yaml','docker/Caddyfile','docker/compose.env.example','deployment/deploy.sh','deployment/configure.py','deployment/README.md'}
 with tarfile.open(archive) as bundle:
  members=bundle.getmembers()
- if {m.name for m in members}!=required or len(members)!=len(required) or any(not m.isfile() or m.size>1024*1024 for m in members):
+ names={m.name for m in members}
+ if names not in (required,required|{'update.sh'}) or len(members)!=len(names) or any(not m.isfile() or m.size>1024*1024 for m in members):
   raise SystemExit('Неожиданное содержимое установочного архива')
  for member in members:
   target=root/'verified'/member.name;target.parent.mkdir(parents=True,exist_ok=True)
@@ -234,6 +235,10 @@ PY
     --version "sha-$revision" "${deploy_args[@]}"
   ln -sfn "$release_root" "$installation/.current-next"
   mv -Tf "$installation/.current-next" "$installation/current"
+  if [[ -f "$release_root/update.sh" ]]; then
+    install -m 755 "$release_root/update.sh" "$installation/.update-next"
+    mv -f -- "$installation/.update-next" "$installation/update.sh"
+  fi
   note "Готово. Установлена версия ${revision:0:7}. Повтор этой же команды обновляет приложение."
   rm -rf -- "$temporary"
   trap - EXIT INT TERM
